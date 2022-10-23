@@ -1,0 +1,6 @@
+<!-- -*- mode: XML -*- -->
+<launch>
+
+  <node pkg="belief_updater_pkg" type="belief_updater.jl" name="belief_updater" output="screen" />
+
+</launch>

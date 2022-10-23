@@ -1,0 +1,4 @@
+bool record
+---
+float64[11] state
+bool[4] peds_in_env
