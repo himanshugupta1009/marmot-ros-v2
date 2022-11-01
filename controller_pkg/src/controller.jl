@@ -14,7 +14,6 @@ HAN_path = "/home/adcl/Documents/human_aware_navigation/src/"
 # include(HAN_path * "main.jl")
 # include(HAN_path * "utils.jl")
 # include(HAN_path * "pomdp_planning.jl")
-# include(HAN_path * "belief_tracker.jl")
 # include(HAN_path * "main.jl")
 
 # ROS connections:
@@ -22,18 +21,11 @@ HAN_path = "/home/adcl/Documents/human_aware_navigation/src/"
 #   - to ack_publisher node as CLIENT of ack_publisher service
 
 @rosimport state_updater_pkg.srv: UpdateState
-@rosimport belief_updater_pkg.srv: UpdateBelief
 @rosimport controller_pkg.srv: UpdateAction
 
 rostypegen()
 using .state_updater_pkg.srv
-using .belief_updater_pkg.srv
 using .controller_pkg.srv
-
-# (?): these 3 lines are duplicated, can delete?
-# discount(p::POMDP_Planner_2D_action_space) = p.discount_factor
-# isterminal(::POMDP_Planner_2D_action_space, s::POMDP_state_2D_action_space) = is_terminal_state_pomdp_planning(s,location(-100.0,-100.0));
-# actions(m::POMDP_Planner_2D_action_space,b) = get_actions_non_holonomic(b)
 
 # call state_updater service as client
 function state_updater_client(record)
@@ -43,26 +35,6 @@ function state_updater_client(record)
     resp = update_state_srv(UpdateStateRequest(record))
 
     return resp.state
-end
-
-# call state_updater service as client
-function belief_updater_client()
-    wait_for_service("/car/belief_updater/get_belief_update")
-    update_belief_srv = ServiceProxy{UpdateBelief}("/car/belief_updater/get_belief_update")
-
-    resp = update_belief_srv(UpdateBeliefRequest(true))
-
-    return resp.belief_array
-end
-
-function ros2pomdp_belief(belief_ros)
-    l = length(belief_ros)
-    belief = Array{belief_over_human_goals,1}()
-    for i in 1:4:l
-        b = belief_over_human_goals(belief_ros[i:i+3])
-        push!(belief,b)
-    end
-    return belief
 end
 
 # call ack_publisher service as client
@@ -138,7 +110,6 @@ function main()
     pomdp_planner = POMDPs.solve(pomdp_solver, extended_space_pomdp);
 
 
-
     while end_run == false
         println("\n--- --- ---")
         println("k = ", plan_step)
@@ -148,12 +119,14 @@ function main()
         a_ros = [0.0, 0.0]
         ack_publisher_client(a_ros)
 
-        # 2.a: receive current state and belief
+        # 2: receive current state and belief
         obs_k = state_updater_client(true)
         belief_ros = belief_updater_client(true)     # TO-DO: need to convert belief_array to actual belief object
         belief_dist_k = ros2pomdp_belief(belief_ros)
 
-        # 3: update environment
+        # 3: update belief
+
+        # 4: update environment
         veh_obj = Vehicle(obs_k.state[1],obs_k.state[2],obs_k.state[3],a_ros[1])
         ped_states_k = Array{human_state,1}()
         ped_params_k = Array{human_parameters,1}()
@@ -176,7 +149,7 @@ function main()
             continue
         end
 
-        # 4: calculate action for next cycle with POMDP solver
+        # 5: calculate action for next cycle with POMDP solver
         future_pred_time = 0.4
         predicted_vehicle_state = propogate_vehicle(new_sim_obj.vehicle, new_sim_obj.vehicle_params,a_ros[2], a_ros[1], future_pred_time)
         modified_vehicle_params = modify_vehicle_params(new_sim_obj.vehicle_params)
@@ -190,13 +163,13 @@ function main()
         println("POMDP action @ t_k1: ", a_pomdp)
         println("ROS action @ t_k1: ", a_ros)
 
-        # 4: book-keeping
+        # 6: book-keeping
         push!(obs_hist, obs_k.state)
         push!(belief_hist, belief_k)
         push!(action_hist, a_ros)
         plan_step += 1
 
-        #5: sleep for remainder of planning loop
+        # 7: sleep for remainder of planning loop
         sleep(planning_rate)
     end
 
@@ -218,71 +191,3 @@ Changes:
 3) Change [0.0,0.0] to sudden brake action
 4) Include sudden brake action
 =#
-
-
-#  # receive initial observation from Vicon, convert to POMDP objects
-#  initial_observation = state_updater_client(true)
-#  env_right_now.cart.x = initial_observation[1]
-#  env_right_now.cart.y = initial_observation[2]
-#  env_right_now.cart.theta = initial_observation[3]
-
-#  current_pedestrian_states = Array{human_state,1}()
-#  pedestrian_id = 1.0
-#  for i in 4:2:length(initial_observation)
-#      pedestrian = human_state(initial_observation[i], initial_observation[i+1], 1.0, env_right_now.goals[1], pedestrian_id)
-#      pedestrian_id += 1
-#      push!(current_pedestrian_states, pedestrian)
-#  end
-
-#  env_right_now.complete_cart_lidar_data = current_pedestrian_states
-#  env_right_now.cart_lidar_data = current_pedestrian_states
-
-#  # calculate initial belief based on observation
-#  initial_belief_over_complete_cart_lidar_data = update_belief([], env_right_now.goals, [], env_right_now.complete_cart_lidar_data)
-#  initial_belief = get_belief_for_selected_humans_from_belief_over_complete_lidar_data(initial_belief_over_complete_cart_lidar_data,
-#                                                      env_right_now.complete_cart_lidar_data, env_right_now.cart_lidar_data)
-
-
-# belief_update_time_step = 0.5
-
-#  #Get the first action
-#  b = POMDP_2D_action_space_state_distribution(env_right_now,current_belief)
-#  action, info = action_info(planner, b)
-#  a = pomdp2ros_action(action, env_right_now.cart.v, planning_Dt, env_right_now.cart.L)
-
-# # t=0.0 -> t=0.5 sec
-# sleep(belief_update_time_step)
-# new_observation = state_updater_client(true)
-# new_pedestrian_states = Array{human_state,1}()
-# pedestrian_id = 1.0
-# for i in 4:2:length(initial_observation)
-#     new_pedestrian = human_state(new_observation[i],new_observation[i+1],1.0,env_right_now.goals[1],pedestrian_id)
-#     pedestrian_id += 1
-#     push!(new_pedestrian_states,new_pedestrian)
-# end
-
-# env_right_now.complete_cart_lidar_data = new_pedestrian_states
-# env_right_now.cart_lidar_data = new_pedestrian_states
-# current_belief_over_complete_cart_lidar_data = update_belief(initial_belief_over_complete_cart_lidar_data, env_right_now.goals, current_pedestrian_states, new_pedestrian_states)
-# current_belief = get_belief_for_selected_humans_from_belief_over_complete_lidar_data(current_belief_over_complete_cart_lidar_data,
-#                                                     env_right_now.complete_cart_lidar_data, env_right_now.cart_lidar_data)
-# current_pedestrian_states = new_pedestrian_states
-
-# # t=0.5 -> t=1.0 sec
-# sleep(belief_update_time_step)
-# new_observation = state_updater_client(true)
-# new_pedestrian_states = Array{human_state,1}()
-# pedestrian_id = 1.0
-# for i in 4:2:length(initial_observation)
-#     new_pedestrian = human_state(new_observation[i],new_observation[i+1],1.0,env_right_now.goals[1],pedestrian_id)
-#     pedestrian_id += 1
-#     push!(new_pedestrian_states,new_pedestrian)
-# end
-
-# env_right_now.complete_cart_lidar_data = new_pedestrian_states
-# env_right_now.cart_lidar_data = new_pedestrian_states
-# current_belief_over_complete_cart_lidar_data = update_belief(current_belief_over_complete_cart_lidar_data, env_right_now.goals,
-#                                                         current_pedestrian_states, new_pedestrian_states)
-# current_belief = get_belief_for_selected_humans_from_belief_over_complete_lidar_data(current_belief_over_complete_cart_lidar_data,
-#                                                     env_right_now.complete_cart_lidar_data, env_right_now.cart_lidar_data)
-# current_pedestrian_states = new_pedestrian_states

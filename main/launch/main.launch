@@ -2,34 +2,32 @@
 <launch>
   <arg name="car_name" default="car" />
 
+  <arg name="racecar_version" default="racecar-uw-nano" />
+
   <group ns="$(arg car_name)">
-<!-- 
+
     <group ns="vesc">
-         <include file="$(find vesc_main)/launch/vesc.launch">
-             <arg name="car_name" default="/$(arg car_name)" />
-         </include>
+      <include file="$(find vesc_main)/launch/vesc.launch">
+        <arg name="racecar_version" value="$(arg racecar_version)" />
+        <arg name="car_name" default="/$(arg car_name)" />
+      </include>
     </group>
 
     <group ns="mux">
-        <include file="$(find ackermann_cmd_mux)/launch/mux.launch" />
-    </group> -->
-
-     <group ns="state_updater">
-         <include file="$(find state_updater_pkg)/launch/state_updater.launch" />
-    </group>
-
-    <group ns="belief_updater">
-         <include file="$(find belief_updater_pkg)/launch/belief_updater.launch" />
+      <include file="$(find ackermann_cmd_mux)/launch/mux.launch" />
     </group>
 
     <group ns="controller">
-         <include file="$(find controller_pkg)/launch/controller.launch" />
+      <include file="$(find controller_pkg)/launch/controller.launch" />
     </group>
 
-<!--
+     <group ns="state_updater">
+      <include file="$(find state_updater_pkg)/launch/state_updater.launch" />
+    </group>
+
     <group ns="vrpn_client_ros">
-         <include file="$(find vrpn_client_ros)/launch/vrpn_client_ros.launch" />
-    </group> -->
+      <include file="$(find vrpn_client_ros)/launch/vrpn_client_ros.launch" />
+    </group>
 
   </group>
 
