@@ -14,8 +14,8 @@ class ActionUpdater:
         global latest_a_msg
 
         latest_a_msg = UpdateActionRequest()
-        latest_a_msg.a_v = 0.0
         latest_a_msg.a_phi = 0.0
+        latest_a_msg.a_v = 0.0
 
         self.update_action_srv = rospy.Service(
             "/car/controller/send_action_update",
@@ -39,15 +39,19 @@ class ActionUpdater:
         global latest_a_msg
         latest_a_msg = a_req
 
+        # print("action_updater: received action request: ")
+        # print(a_req)
+
         return UpdateActionResponse(True)
 
     def publish_to_ackermann(self, a_msg): 
         ackermann_msg = AckermannDriveStamped()
         ackermann_msg.header.stamp = rospy.Time.now()
 
-        ackermann_msg.drive.speed = a_msg.a_v
         ackermann_msg.drive.steering_angle = a_msg.a_phi
+        ackermann_msg.drive.speed = a_msg.a_v
 
+        # print("action_updater: publishing to ackmermann:", ackermann_msg)
         self.ackermann_pub.publish(ackermann_msg)
 
         return 

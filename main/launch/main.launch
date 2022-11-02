@@ -2,7 +2,7 @@
 <launch>
   <arg name="car_name" default="car" />
 
-  <arg name="racecar_version" default="racecar-uw-nano" />
+  <arg name="racecar_version" default="marmot" />
 
   <group ns="$(arg car_name)">
 

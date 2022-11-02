@@ -6,15 +6,18 @@ using Dates
 
 println("\n--- hello from controller.jl ---\n")
 
-algs_path = "/home/adcl/Documents/marmot-algs/"
-# include(algs_path * "HJB-planner/HJB_generator_functions.jl")
-# include(algs_path * "HJB-planner/HJB_planner_functions.jl")
-
 HAN_path = "/home/adcl/Documents/human_aware_navigation/src/"
-# include(HAN_path * "main.jl")
-# include(HAN_path * "utils.jl")
-# include(HAN_path * "pomdp_planning.jl")
-# include(HAN_path * "main.jl")
+include(HAN_path * "struct_definition.jl")
+include(HAN_path * "environment.jl")
+include(HAN_path * "utils.jl")
+include(HAN_path * "ES_POMDP_Planner.jl")
+include(HAN_path * "belief_tracker.jl")
+include(HAN_path * "simulator.jl")
+include(HAN_path * "parser.jl")
+include(HAN_path * "visualization.jl")
+include(HAN_path * "HJB_wrappers.jl")
+include(HAN_path * "aspen_inputs.jl")
+
 
 # ROS connections:
 #   - to state_updater node as CLIENT to state_updater service
@@ -40,61 +43,58 @@ end
 # call ack_publisher service as client
 function action_updater_client(a)
     wait_for_service("/car/controller/send_action_update")
-    update_action_srv = ServiceProxy{AckPub}("/car/controller/send_action_update")
+    update_action_srv = ServiceProxy{UpdateAction}("/car/controller/send_action_update")
 
     a_req = UpdateActionRequest(a[1], a[2])
+
     resp = update_action_srv(a_req)
 end
 
-function pomdp2ros_action(a_pomdp, v_kn1, Dt, veh_L)
-    # define limits
-    v_min = 0.0
-    v_max = 1.0
-    phi_max = 0.475
+function pomdp2ros_action(a_pomdp, v_kn1)
+    # pass steering angle
+    phi_k = a_pomdp[1]
 
-    # calculate velocity
+    # calculate new velocity from Dv
     Dv = a_pomdp[2]
     v_k = v_kn1 + Dv
-    clamp!(v_k, v_min, v_max)
 
-    # calculate steering angle
-    arc_length = v_k*Dt
-    if(arc_length != 0)
-        phi_k = atan(a_pomdp[1] * veh_L/arc_length)
-        clamp!(phi_k, -phi_max, phi_max)
-    else
-        phi_k = 0.0
-    end
-
-    return [v_k, phi_k]
+    return [phi_k, v_k]
 end
 
 function main()
     # initialize ROS controller node
     init_node("controller")
 
-    return
-
     # initialize utilities
-    end_run = false
-    o_hist = []
-    a_hist = []
-
     max_plan_steps = 2*60*4
-    planning_Dt = 0.5
-    planning_rate = Rate(1/planning_Dt)
+    Dt = 0.5
+    rate = Rate(1/Dt)
 
     plan_step = 1
 
-    input = aspen
-    exp_details, pomdp_details, output = get_details_from_input_parameters(input)
-    env = generate_environment(input.env_length,input.env_breadth,input.obstacles)
+    # retrieve scenario config
+    input_config = aspen
+
+    # define experiment details and POMDP planning details
+    pomdp_details = POMPDPlanningDetails(input_config)
+    exp_details = ExperimentDetails(input_config)
+    output = OutputObj()
+
+    # define environment
+    env = generate_environment(input_config.env_length,input_config.env_breadth,input_config.obstacles)
     exp_details.env = env
     exp_details.human_goal_locations = get_human_goals(env)
-    veh = Vehicle(input.veh_start_x, input.veh_start_y, input.veh_start_theta, input.veh_start_v)
-    veh_sensor_data = vehicle_sensor(human_state[],Int64[],belief_over_human_goals[])
-    veh_goal = location(input.veh_goal_x,input.veh_goal_y)
-    veh_params = es_vehicle_parameters(input.veh_L,input.veh_max_speed,veh_goal)
+
+    # define vehicle
+    veh = Vehicle(input_config.veh_start_x, input_config.veh_start_y, input_config.veh_start_theta, input_config.veh_start_v)
+    veh_sensor_data = VehicleSensor(HumanState[],Int64[],HumanGoalsBelief[])
+    veh_goal = Location(input_config.veh_goal_x,input_config.veh_goal_y)
+    veh_params = VehicleParametersESPlanner(input_config.veh_L,input_config.veh_max_speed,veh_goal)
+
+    
+    # NOTE: ended new revamp code here --- --- ---
+
+
     env_humans, env_humans_params = generate_humans(env,veh,exp_details.human_start_v,exp_details.human_goal_locations,exp_details.num_humans_env,exp_details.user_defined_rng)
     initial_sim_obj = simulator(env,veh,veh_params,veh_sensor_data,env_humans,env_humans_params,exp_details.simulator_time_step)
 
@@ -109,7 +109,10 @@ function main()
                         calculate_upper_bound,check_terminal=true),K=pomdp_details.num_scenarios,D=pomdp_details.tree_search_max_depth,T_max=pomdp_details.planning_time,tree_in_info=true)
     pomdp_planner = POMDPs.solve(pomdp_solver, extended_space_pomdp);
 
+    state_hist = []
+    action_hist = []
 
+    end_run = false
     while end_run == false
         println("\n--- --- ---")
         println("k = ", plan_step)
@@ -164,7 +167,7 @@ function main()
         println("ROS action @ t_k1: ", a_ros)
 
         # 6: book-keeping
-        push!(obs_hist, obs_k.state)
+        push!(state_hist, obs_k.state)
         push!(belief_hist, belief_k)
         push!(action_hist, a_ros)
         plan_step += 1
@@ -178,8 +181,8 @@ function main()
     state_updater_client(false)
 
     # save state and action history
-    @save "/home/adcl/catkin_ws/src/marmot-ros/controller_pkg/histories/o_hist.bson" o_hist
-    @save "/home/adcl/catkin_ws/src/marmot-ros/controller_pkg/histories/a_hist.bson" a_hist
+    @save "/home/adcl/catkin_ws/src/marmot-ros/controller_pkg/histories/state_hist.bson" state_hist
+    @save "/home/adcl/catkin_ws/src/marmot-ros/controller_pkg/histories/action_hist.bson" action_hist
 end
 
 main()
