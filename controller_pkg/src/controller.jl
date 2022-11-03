@@ -6,7 +6,14 @@ using Dates
 
 println("\n--- hello from controller.jl ---\n")
 
+# algs imports
 HAN_path = "/home/adcl/Documents/human_aware_navigation/src/"
+
+using Pkg
+Pkg.activate("/home/adcl/Documents/BellmanPDEs.jl/")
+using BellmanPDEs
+
+# include(HAN_path * "main.jl")
 include(HAN_path * "struct_definition.jl")
 include(HAN_path * "environment.jl")
 include(HAN_path * "utils.jl")
@@ -18,29 +25,39 @@ include(HAN_path * "visualization.jl")
 include(HAN_path * "HJB_wrappers.jl")
 include(HAN_path * "aspen_inputs.jl")
 
-
-# ROS connections:
-#   - to state_updater node as CLIENT to state_updater service
-#   - to ack_publisher node as CLIENT of ack_publisher service
-
+# ROS imports
 @rosimport state_updater_pkg.srv: UpdateState
+@rosimport belief_updater_pkg.srv: UpdateBelief
 @rosimport controller_pkg.srv: UpdateAction
 
 rostypegen()
 using .state_updater_pkg.srv
+using .belief_updater_pkg.srv
 using .controller_pkg.srv
 
+
+# ROS services ---
 # call state_updater service as client
-function state_updater_client(record)
+function state_updater_client(record_vicon_history)
     wait_for_service("/car/state_updater/get_state_update")
     update_state_srv = ServiceProxy{UpdateState}("/car/state_updater/get_state_update")
 
-    resp = update_state_srv(UpdateStateRequest(record))
+    resp = update_state_srv(UpdateStateRequest(record_vicon_history))
 
     return resp.state
 end
 
-# call ack_publisher service as client
+# call belief_updater service as client
+function belief_updater_client()
+    wait_for_service("/car/belief_updater/get_belief_update")
+    update_belief_srv = ServiceProxy{UpdateBelief}("/car/belief_updater/get_belief_update")
+
+    resp = update_belief_srv(UpdateBeliefRequest(true))
+
+    return resp.belief
+end
+
+# call action_updater service as client
 function action_updater_client(a)
     wait_for_service("/car/controller/send_action_update")
     update_action_srv = ServiceProxy{UpdateAction}("/car/controller/send_action_update")
@@ -50,6 +67,7 @@ function action_updater_client(a)
     resp = update_action_srv(a_req)
 end
 
+# convert POMDP action to ROS control input
 function pomdp2ros_action(a_pomdp, v_kn1)
     # pass steering angle
     phi_k = a_pomdp[1]
@@ -61,16 +79,24 @@ function pomdp2ros_action(a_pomdp, v_kn1)
     return [phi_k, v_k]
 end
 
+# TO-DO: need to make sure this aligns with revamped POMDP code
+# convert ROS 1D belief array to POMDP belief distribution object
+function ros2pomdp_belief(belief_ros)
+    belief_pomdp = Array{belief_over_human_goals,1}()
+
+    for i in 1:4:length(belief_ros)
+        b = belief_over_human_goals(belief_ros[i:i+3])
+
+        push!(belief_pomdp, b)
+    end
+
+    return belief_pomdp
+end
+
+
 function main()
     # initialize ROS controller node
     init_node("controller")
-
-    # initialize utilities
-    max_plan_steps = 2*60*4
-    Dt = 0.5
-    rate = Rate(1/Dt)
-
-    plan_step = 1
 
     # retrieve scenario config
     input_config = aspen
@@ -91,93 +117,142 @@ function main()
     veh_goal = Location(input_config.veh_goal_x,input_config.veh_goal_y)
     veh_params = VehicleParametersESPlanner(input_config.veh_L,input_config.veh_max_speed,veh_goal)
 
+    # solve HJB equation for the given environment and vehicle
+    Dt = 0.5
+    max_solve_steps = 200
+    Dval_tol = 0.1
+    max_steering_angle = 0.475
+    HJB_planning_details = HJBPlanningDetails(Dt, max_solve_steps, Dval_tol, max_steering_angle, veh_params.max_speed)
+    policy_path = "/home/himanshu/Documents/Research/human_aware_navigation/src"
     
-    # NOTE: ended new revamp code here --- --- ---
+    solve_HJB = true
+    # solve_HJB = false
 
+    if(solve_HJB)
+        rollout_guide = HJBPolicy(HJB_planning_details, exp_details, veh_params)
+        # @save policy_path * "/bson/HJBPolicy.bson" rollout_guide
+    else
+        # @load policy_path * "/bson/HJBPolicy.bson" rollout_guide
+    end
+    
+    # create human and sim objects
+    env_humans, env_humans_params = HumanState[], HumanParameters[]
+    sim_obj_kn1 = Simulator(env, veh, veh_params, veh_sensor_data, 
+        env_humans, env_humans_params, exp_details.simulator_time_step)
 
-    env_humans, env_humans_params = generate_humans(env,veh,exp_details.human_start_v,exp_details.human_goal_locations,exp_details.num_humans_env,exp_details.user_defined_rng)
-    initial_sim_obj = simulator(env,veh,veh_params,veh_sensor_data,env_humans,env_humans_params,exp_details.simulator_time_step)
+    # define POMDP, POMDP solver and POMDP planner
+    extended_space_pomdp = ExtendedSpacePOMDP(pomdp_details,exp_details,veh_params,rollout_guide)
 
-    #Define POMDP, POMDP Solver and POMDP Planner
-    extended_space_pomdp = extended_space_POMDP_planner(pomdp_details.discount_factor,pomdp_details.min_safe_distance_from_human,
-                pomdp_details.human_collision_penalty,pomdp_details.min_safe_distance_from_obstacle,pomdp_details.obstacle_collision_penalty,
-                pomdp_details.radius_around_vehicle_goal,pomdp_details.goal_reached_reward,pomdp_details.max_vehicle_speed,pomdp_details.one_time_step,
-                pomdp_details.num_segments_in_one_time_step,pomdp_details.observation_discretization_length,pomdp_details.d_near,
-                pomdp_details.d_far,env)
-
-    pomdp_solver = DESPOTSolver(bounds=IndependentBounds(DefaultPolicyLB(FunctionPolicy(b->calculate_lower_bound(extended_space_pomdp, b)),max_depth=pomdp_details.tree_search_max_depth),
-                        calculate_upper_bound,check_terminal=true),K=pomdp_details.num_scenarios,D=pomdp_details.tree_search_max_depth,T_max=pomdp_details.planning_time,tree_in_info=true)
+    pomdp_solver = DESPOTSolver(bounds=IndependentBounds(DefaultPolicyLB(FunctionPolicy(b->calculate_lower_bound(extended_space_pomdp, b)),
+        max_depth=pomdp_details.tree_search_max_depth), calculate_upper_bound,check_terminal=true),
+        K=pomdp_details.num_scenarios, D=pomdp_details.tree_search_max_depth, T_max=pomdp_details.planning_time, tree_in_info=true)
+    
     pomdp_planner = POMDPs.solve(pomdp_solver, extended_space_pomdp);
+
+    # set control loop parameters
+    Dt = 0.5
+    plan_rate = Rate(1/Dt)
+
+    plan_step = 1
+    max_plan_steps = 4 * 60 * 1/Dt
+    end_run = false
+
+    a_ros_k = [0.0, 0.0]
 
     state_hist = []
     action_hist = []
 
-    end_run = false
+
+    # run control loop
     while end_run == false
         println("\n--- --- ---")
-        println("k = ", plan_step)
-        println("t_k = ", Dates.now())
+        println("k = ", plan_step, ", t_k = ", Dates.now())
 
-        # 1: publish current action to ESC
-        a_ros = [0.0, 0.0]
-        ack_publisher_client(a_ros)
+        # 1: publish current action to ESC ---
+        # a_ros = [0.0, 0.0]
+        action_updater_client(a_ros_k)
 
-        # 2: receive current state and belief
+
+        # 2: retrieve current state/observation from Vicon ---
         obs_k = state_updater_client(true)
-        belief_ros = belief_updater_client(true)     # TO-DO: need to convert belief_array to actual belief object
-        belief_dist_k = ros2pomdp_belief(belief_ros)
 
-        # 3: update belief
 
-        # 4: update environment
-        veh_obj = Vehicle(obs_k.state[1],obs_k.state[2],obs_k.state[3],a_ros[1])
-        ped_states_k = Array{human_state,1}()
-        ped_params_k = Array{human_parameters,1}()
-        ped_ids = Array{Int64,1}()
-        ped_id = 1
+        # 3: retrieve current belief from belief updater ---
+        belief_ros_k = belief_updater_client()
+        belief_pomdp_k = ros2pomdp_belief(belief_ros_k)
+
+        # (?): does this need to stay, move to belief_updater, or just get deleted?
+        new_lidar_data, new_ids = human_states_k, human_ids
+        belief_pomdp_k = get_belief(sim_obj_kn1.vehicle_sensor_data, new_lidar_data, new_ids, exp_details.human_goal_locations)
+        # ---
+
+        sensor_data_k = VehicleSensor(human_states_k, human_ids, belief_pomdp_k)
+        sim_obj_k = Simulator(env, veh_obj, veh_params, sensor_data_k, human_states_k, human_params_k, sim_obj_kn1.one_time_step)
+
+
+        # 4: update environment ---
+        veh_obj = Vehicle(obs_k.state[1], obs_k.state[2], obs_k.state[3], a_ros[2])
+
+        # parse human positions from observation array
+        human_states_k = Array{HumanState,1}()
+        human_params_k = Array{HumanParameters,1}()
+        human_ids = Array{Int64,1}()
+        human_id = 1
+
         for i in 4:2:length(obs_k.state)
-            ped = human_state(obs_k.state[i], obs_k.state[i+1], 1.0, env_k.goals[1])
-            push!(ped_states_k, ped)
-            push!(ped_params_k, human_parameters(ped_id))
-            push!(ped_ids, ped_id)
-            ped_id += 1
+            human = HumanState(obs_k.state[i], obs_k.state[i+1], 1.0, env_k.goals[1])
+
+            push!(human_states_k, human)
+            push!(human_params_k, HumanParameters(human_id, HumanState[], 1))
+            push!(human_ids, human_id)
+
+            human_id += 1
         end
 
-        new_sensor_data = vehicle_sensor(ped_states_k, ped_ids, belief_dist_k)
-        new_sim_obj = simulator(env,veh_obj,veh_params,new_sensor_data,ped_states_k,ped_params_k,current_sim_obj.one_time_step)
-
+        # check terminal conditions
         dist_to_goal = sqrt((veh_obj.x - veh_params.goal.x)^2 + (veh_obj.y - veh_params.goal.y)^2)
+
         if ((plan_step >= max_plan_steps) || (dist_to_goal <= 1.0))
             end_run = true
             continue
         end
 
-        # 5: calculate action for next cycle with POMDP solver
-        future_pred_time = 0.4
-        predicted_vehicle_state = propogate_vehicle(new_sim_obj.vehicle, new_sim_obj.vehicle_params,a_ros[2], a_ros[1], future_pred_time)
-        modified_vehicle_params = modify_vehicle_params(new_sim_obj.vehicle_params)
-        # nearby_humans = get_nearby_humans(new_sim_obj,pomdp_details.num_nearby_humans,pomdp_details.min_safe_distance_from_human,pomdp_details.cone_half_angle)
-        b = tree_search_scenario_parameters(predicted_vehicle_state.x,predicted_vehicle_state.y,predicted_vehicle_state.theta,predicted_vehicle_state.v,
-                            modified_vehicle_params, exp_details.human_goal_locations, ped_states_k, belief_dist_k, env.length, env.breadth, future_pred_time)
-        a_pomdp, info = action_info(pomdp_planner, b)
-        a_ros = pomdp2ros_action(a_pomdp, veh_obj.v, planning_Dt, veh_params.L)
 
-        println("vehicle state @ t_k1: ", [predicted_vehicle_state.x, predicted_vehicle_state.y,predicted_vehicle_state.theta])
-        println("POMDP action @ t_k1: ", a_pomdp)
-        println("ROS action @ t_k1: ", a_ros)
+        # 5: calculate action for next cycle with POMDP solver ---
+        # propagate vehicle forward to next time step (TO-DO: should be variable based on Date.now() time into loop)
+        time_to_k1 = 0.4
+        predicted_vehicle_state = propogate_vehicle(sim_obj_k.vehicle, sim_obj_k.vehicle_params, a_ros[1], a_ros[2], time_to_k1)
+        
+        # assemble inputs for DESPOT solver
+        modified_vehicle_params = modify_vehicle_params(sim_obj_k.vehicle_params)
+        b = TreeSearchScenarioParameters(predicted_vehicle_state.x, predicted_vehicle_state.y, predicted_vehicle_state.theta, predicted_vehicle_state.v,
+            modified_vehicle_params, exp_details.human_goal_locations, length(human_states_k), human_states_k, belief_pomdp_k,
+            sim_obj_k.env.length, sim_obj_k.env.breadth, time_to_k1)
+        
+        # run DESPOT algorithm
+        a_pomdp_k1, info = action_info(pomdp_planner, b)
+        a_ros_k1 = pomdp2ros_action(a_pomdp_k1, veh_obj.v)
 
-        # 6: book-keeping
+        println("veh_x_k1 = ", [predicted_vehicle_state.x, predicted_vehicle_state.y, predicted_vehicle_state.theta, predicted_vehicle_state.v])
+        println("a_pomdp_k1 = ", a_pomdp_k1, ", a_ros_k1 = ", a_ros_k1)
+
+
+        # 6: book-keeping ---
         push!(state_hist, obs_k.state)
-        push!(belief_hist, belief_k)
         push!(action_hist, a_ros)
+
         plan_step += 1
 
-        # 7: sleep for remainder of planning loop
-        sleep(planning_rate)
+        a_ros_k = a_ros_k1
+        sim_obj_kn1 = sim_obj_k
+
+
+        # 7: sleep for remainder of planning loop ---
+        sleep(plan_rate)
     end
 
     # send [0,0] action to stop vehicle
-    ack_publisher_client([0.0, 0.0])
+    action_updater_client([0.0, 0.0])
     state_updater_client(false)
 
     # save state and action history
@@ -187,10 +262,18 @@ end
 
 main()
 
+
 #=
 Changes:
-1) Delta Theta Angle to Steering Angle
-2) Delta velocity to actual velocity
-3) Change [0.0,0.0] to sudden brake action
-4) Include sudden brake action
+1) Change [0.0,0.0] to sudden brake action
+2) Include sudden brake action
 =#
+
+# env_humans, env_humans_params = generate_humans(env,veh,exp_details.human_start_v,exp_details.human_goal_locations,
+#                 exp_details.num_humans_env,exp_details.user_defined_rng,0.1)
+
+# nearby_humans = get_nearby_humans(new_sim_obj, pomdp_details.num_nearby_humans, pomdp_details.min_safe_distance_from_human, pomdp_details.cone_half_angle)
+
+# belief_pomdp_k = get_belief(current_sim_obj.vehicle_sensor_data, new_lidar_data, new_ids, exp_details.human_goal_locations)
+
+# new_sim_obj = Simulator(env, veh_obj, veh_params, sensor_data_k, human_states_k, human_params_k, current_sim_obj.one_time_step)
