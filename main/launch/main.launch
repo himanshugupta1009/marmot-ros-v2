@@ -21,8 +21,12 @@
       <include file="$(find controller_pkg)/launch/controller.launch" />
     </group>
 
-     <group ns="state_updater">
+    <group ns="state_updater">
       <include file="$(find state_updater_pkg)/launch/state_updater.launch" />
+    </group>
+
+    <group ns="belief_updater">
+      <include file="$(find belief_updater_pkg)/launch/belief_updater.launch" />
     </group>
 
     <group ns="vrpn_client_ros">

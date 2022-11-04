@@ -8,9 +8,9 @@ println("\n--- hello from belief_updater.jl ---\n")
 HAN_path = "/home/adcl/Documents/human_aware_navigation/src/"
 
 include(HAN_path * "struct_definition.jl")
+include(HAN_path * "parser.jl")
 include(HAN_path * "environment.jl")
 include(HAN_path * "utils.jl")
-include(HAN_path * "pomdp_planning.jl")
 include(HAN_path * "belief_tracker.jl")
 include(HAN_path * "simulator.jl")
 include(HAN_path * "aspen_inputs.jl")
@@ -39,17 +39,24 @@ end
 function return_belief(req)
     global belief_k
 
-    # convert belief object to array for ROS message
-    belief_array = zeros(Float64, (16,1))
-    i = 0
+    # println("BU: received CTRL request")
 
+    # convert belief object to array for ROS message
+    belief_array = zeros(Float64, 16)
+    i = 1
+    # println(belief_array)
     for human_prob in belief_k
+        # println("human_prob , " , human_prob.pdf)
         for prob in human_prob.pdf
+            # println("PP: ,", prob)
             belief_array[i] = prob
             i += 1
         end
     end
 
+    # println(belief_array)
+    # println("Before returning")
+    # println(typeof(belief_array))
     return UpdateBeliefResponse(belief_array)
 end
 
@@ -68,19 +75,18 @@ function main()
         "/car/belief_updater/get_belief_update",
         return_belief)
 
+    # POMDP params
+    input_config = aspen
+    pomdp_details = POMPDPlanningDetails(input_config)
+    exp_details = ExperimentDetails(input_config)
+    env = generate_environment(input_config.env_length,input_config.env_breadth,input_config.obstacles)
+    exp_details.env = env
+    exp_details.human_goal_locations = get_human_goals(env)
+    veh_sensor_data_kn1 = VehicleSensor(HumanState[],Int64[],HumanGoalsBelief[])
+
     # set belief loop parameters
     belief_Dt = 0.2
     belief_rate = Rate(1/belief_Dt)
-
-
-    # REVAMP ---
-
-    env = generate_environment(5.518, 11.036, obstacle_location[])
-    list_human_goals = get_human_goals(env)
-    veh_sensor_data = vehicle_sensor(human_state[],Int64[],belief_over_human_goals[])
-
-    # ^^^
-
 
     while true
         # 1: retrieve current state/observation from Vicon ---
@@ -93,8 +99,8 @@ function main()
         human_ids = Array{Int64,1}()
         human_id = 1
 
-        for i in 4:2:length(obs_k.state)
-            human = HumanState(obs_k.state[i], obs_k.state[i+1], 1.0, env_k.goals[1])
+        for i in 4:2:length(obs_k)
+            human = HumanState(obs_k[i], obs_k[i+1], 1.0, exp_details.human_goal_locations[1])
 
             push!(human_states_k, human)
             push!(human_params_k, HumanParameters(human_id, HumanState[], 1))
@@ -103,26 +109,21 @@ function main()
             human_id += 1
         end
 
-
-        # REVAMP ---
-
         # 3: update belief based on observation ---
-        # belief_k_over_complete_cart_lidar_data = update_belief(belief_kn1_over_complete_cart_lidar_data, env.goals, peds_kn1, peds_k)
-        # belief_k = get_belief_for_selected_humans_from_belief_over_complete_lidar_data(belief_k_over_complete_cart_lidar_data, ped_states, ped_states)
-        belief_k = get_belief(veh_sensor_data, peds_k, peds_id, list_human_goals)
-        # get_belief(old_sensor_data, new_lidar_data, new_ids, human_goal_locations)
+        new_lidar_data, new_ids = human_states_k, human_ids
+        belief_k = get_belief(veh_sensor_data_kn1, new_lidar_data, 
+                                        new_ids, exp_details.human_goal_locations)
 
+
+        # println("belief_updater: belief_k = ", belief_k)
 
         # 4: pass variables to next loop ---
-        veh_sensor_data = vehicle_sensor(peds_k, peds_id, belief_k)
-        # peds_kn1 = peds_k
-        # belief_kn1_over_complete_cart_lidar_data = belief_k_over_complete_cart_lidar_data
-
-        # ^^^
-
+        veh_sensor_data_k = VehicleSensor(human_states_k, human_ids, belief_k)
+        veh_sensor_data_kn1 = veh_sensor_data_k
 
         # 5: sleep for remainder of belief loop ---
-        sleep(obs_rate)
+
+        sleep(belief_rate)
     end
 end
 

@@ -45,7 +45,7 @@ class StateUpdater:
     def __init__(self):
         # subscribe to Vicon topic for each object
         self.vrpn_sub_marmot_pose = rospy.Subscriber(
-            "/car/vrpn_client_ros/vrpn_client_node/ADCL_Marmot/pose", 
+            "/car/vrpn_client_ros/vrpn_client_node/ADCL_Ped1/pose", 
             PoseStamped,
             callback=self.store_current_msg,
             callback_args=0,
@@ -73,7 +73,7 @@ class StateUpdater:
             queue_size=1)
 
         self.vrpn_sub_ped4_pose = rospy.Subscriber(
-            "/car/vrpn_client_ros/vrpn_client_node/ADCL_Ped4/pose", 
+            "/car/vrpn_client_ros/vrpn_client_node/ADCL_Ped3/pose", 
             PoseStamped,
             callback=self.store_current_msg,
             callback_args=4,
