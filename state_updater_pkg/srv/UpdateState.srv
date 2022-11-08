@@ -1,4 +1,4 @@
 bool record
 ---
-float64[11] state
+float64[12] state
 bool[4] peds_in_env

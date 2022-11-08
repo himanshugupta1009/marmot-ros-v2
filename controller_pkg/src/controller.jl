@@ -55,11 +55,11 @@ function belief_updater_client()
     wait_for_service("/car/belief_updater/get_belief_update")
     update_belief_srv = ServiceProxy{UpdateBelief}("/car/belief_updater/get_belief_update")
 
-    # println("controller: set up BU client")
+    # println("controller: set up bu client")
 
     resp = update_belief_srv(UpdateBeliefRequest(true))
 
-    # println("controller: BU respnse: ", resp)
+    # println("controller: bu response: ", resp)
 
     return resp.belief
 end
@@ -172,6 +172,8 @@ function main()
     state_hist = []
     action_hist = []
 
+    sleep(2.0)
+    println("controller: sending test requests to services")
 
     # TEST ---
     a_ros_k = [0.4, 0.0]
@@ -183,6 +185,10 @@ function main()
     belief_ros_k = belief_updater_client()
     println("belief_ros_k = ", belief_ros_k)
 
+    println("controller: going into sleep loop") 
+    while true
+        sleep(0.5)
+    end
 
     # run control loop
     println("controller: starting main loop")
@@ -204,7 +210,7 @@ function main()
         belief_pomdp_k = ros2pomdp_belief(belief_ros_k)
 
         # 4: update environment ---
-        veh_obj = Vehicle(obs_k[1], obs_k[2], obs_k[3], a_ros_k[2])
+        veh_obj = Vehicle(obs_k[1], obs_k[2], obs_k[3], obs_k[4])
 
         # parse human positions from observation array
         human_states_k = Array{HumanState,1}()
@@ -212,7 +218,7 @@ function main()
         human_ids = Array{Int64,1}()
         human_id = 1
 
-        for i in 4:2:length(obs_k)
+        for i in 5:2:length(obs_k)
             human = HumanState(obs_k[i], obs_k[i+1], 1.0, exp_details.human_goal_locations[1])
 
             push!(human_states_k, human)

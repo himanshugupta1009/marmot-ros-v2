@@ -99,7 +99,7 @@ function main()
         human_ids = Array{Int64,1}()
         human_id = 1
 
-        for i in 4:2:length(obs_k)
+        for i in 5:2:length(obs_k)
             human = HumanState(obs_k[i], obs_k[i+1], 1.0, exp_details.human_goal_locations[1])
 
             push!(human_states_k, human)

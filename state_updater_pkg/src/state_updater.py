@@ -1,12 +1,13 @@
 #!/usr/bin/env python
 
 import rospy
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, TwistStamped
 from state_updater_pkg.srv import UpdateState, UpdateStateResponse
 
 import copy
 import math
 from scipy.spatial.transform import Rotation
+from numpy import linalg as la
 from datetime import datetime
 import csv
 
@@ -20,14 +21,16 @@ import csv
 #   [Marmot x;
 #   Marmot y;
 #   Marmot theta;
+#   Marmot v;
 #   Ped1 x;
 #   Ped1 y;
 #   Ped2 x;
 #   ...]
-# - length = 3 + 2*n_peds
+# - length = 4 + 2*n_peds
 
 class StateUpdater:
-    current_veh_msg = []
+    current_veh_pose_msg = []
+    current_veh_twist_msg = []
     current_ped1_msg = []
     current_ped2_msg = []
     current_ped3_msg = []
@@ -36,7 +39,8 @@ class StateUpdater:
     record_hist = False
     saved_hist = False
 
-    hist_veh_msg = []
+    hist_veh_pose_msg = []
+    hist_veh_twist_msg = []
     hist_ped1_msg = []
     hist_ped2_msg = []
     hist_ped3_msg = []
@@ -44,39 +48,48 @@ class StateUpdater:
 
     def __init__(self):
         # subscribe to Vicon topic for each object
+        # - vehicle
         self.vrpn_sub_marmot_pose = rospy.Subscriber(
-            "/car/vrpn_client_ros/vrpn_client_node/ADCL_Marmot/pose", 
+            "/car/vrpn_client_ros/vrpn_client_node/ADCL_Ped3/pose", 
             PoseStamped,
             callback=self.store_current_msg,
             callback_args=0,
             queue_size=1)
 
+        self.vrpn_sub_marmot_twist = rospy.Subscriber(
+            "/car/vrpn_client_ros/vrpn_client_node/ADCL_Ped3/twist", 
+            TwistStamped,
+            callback=self.store_current_msg,
+            callback_args=1,
+            queue_size=1)
+
+        # - pedestrians
         self.vrpn_sub_ped1_pose = rospy.Subscriber(
             "/car/vrpn_client_ros/vrpn_client_node/ADCL_Ped1/pose", 
             PoseStamped,
             callback=self.store_current_msg,
-            callback_args=1,
+            callback_args=2,
             queue_size=1)
 
         self.vrpn_sub_ped2_pose = rospy.Subscriber(
             "/car/vrpn_client_ros/vrpn_client_node/ADCL_Ped2/pose", 
             PoseStamped,
             callback=self.store_current_msg,
-            callback_args=2,
+            callback_args=3,
             queue_size=1)
 
         self.vrpn_sub_ped3_pose = rospy.Subscriber(
             "/car/vrpn_client_ros/vrpn_client_node/ADCL_Ped3/pose", 
             PoseStamped,
             callback=self.store_current_msg,
-            callback_args=3,
+            callback_args=4,
             queue_size=1)
 
         self.vrpn_sub_ped4_pose = rospy.Subscriber(
-            "/car/vrpn_client_ros/vrpn_client_node/ADCL_Ped3/pose", 
+            "/car/vrpn_client_ros/vrpn_client_node/ADCL_Ped4/pose", 
             PoseStamped,
             callback=self.store_current_msg,
-            callback_args=4,
+            callback_args=5,
             queue_size=1)
 
         # establish state_updater service as provider
@@ -88,31 +101,38 @@ class StateUpdater:
         return
 
     # subscriber callback function
-    def store_current_msg(self, pose_msg, vrpn_object):
+    def store_current_msg(self, msg, vrpn_object):
+        # - vehicle
         if vrpn_object == 0:
-            self.current_veh_msg = copy.deepcopy(pose_msg)
+            self.current_veh_pose_msg = copy.deepcopy(msg)
             if self.record_hist == True:
-                self.hist_veh_msg.append(pose_msg)
+                self.hist_veh_pose_msg.append(msg)
 
         elif vrpn_object == 1:
-            self.current_ped1_msg = copy.deepcopy(pose_msg)
+            self.current_veh_twist_msg = copy.deepcopy(msg)
             if self.record_hist == True:
-                self.hist_ped1_msg.append(pose_msg)
+                self.hist_veh_twist_msg.append(msg)
 
+        # - pedestrians
         elif vrpn_object == 2:
-            self.current_ped2_msg = copy.deepcopy(pose_msg)
+            self.current_ped1_msg = copy.deepcopy(msg)
             if self.record_hist == True:
-                self.hist_ped2_msg.append(pose_msg)
+                self.hist_ped1_msg.append(msg)
 
         elif vrpn_object == 3:
-            self.current_ped3_msg = copy.deepcopy(pose_msg)
+            self.current_ped2_msg = copy.deepcopy(msg)
             if self.record_hist == True:
-                self.hist_ped3_msg.append(pose_msg)
-                
+                self.hist_ped2_msg.append(msg)
+
         elif vrpn_object == 4:
-            self.current_ped4_msg = copy.deepcopy(pose_msg)
+            self.current_ped3_msg = copy.deepcopy(msg)
             if self.record_hist == True:
-                self.hist_ped4_msg.append(pose_msg)
+                self.hist_ped3_msg.append(msg)
+                
+        elif vrpn_object == 5:
+            self.current_ped4_msg = copy.deepcopy(msg)
+            if self.record_hist == True:
+                self.hist_ped4_msg.append(msg)
         
         return
 
@@ -123,20 +143,22 @@ class StateUpdater:
         if self.record_hist == False and self.saved_hist == False and len(self.hist_veh_msg) > 0: 
             self.save_s_hist()
 
-        current_state = [0]*(3 + 2*(0))
+        current_state = [0]*(4 + 2*(0))
         peds_in_env = [False]*4
 
-        current_state[0:3] = self.veh_state(self.current_veh_msg)
+        # - vehicle
+        current_state[0:4] = self.convert_veh_state(self.current_veh_pose_msg, self.current_veh_twist_msg)
 
-        current_state[3:5], peds_in_env[0] = self.ped_state(self.current_ped1_msg)
-        current_state[5:7], peds_in_env[1] = self.ped_state(self.current_ped2_msg)
-        current_state[7:9], peds_in_env[2] = self.ped_state(self.current_ped3_msg)
-        current_state[9:11], peds_in_env[3] = self.ped_state(self.current_ped4_msg)
+        # - pedestrians
+        current_state[4:6], peds_in_env[0] = self.convert_ped_state(self.current_ped1_msg)
+        current_state[6:8], peds_in_env[1] = self.convert_ped_state(self.current_ped2_msg)
+        current_state[8:10], peds_in_env[2] = self.convert_ped_state(self.current_ped3_msg)
+        current_state[10:12], peds_in_env[3] = self.convert_ped_state(self.current_ped4_msg)
 
         return UpdateStateResponse(current_state, peds_in_env)
 
-    # converts ROS PoseStamped message to regular (x,y,theta) variables
-    def veh_state(self, pose_msg):
+    # converts ROS PoseStamped message to regular (x,y,theta,v) variables
+    def convert_veh_state(self, pose_msg, twist_msg):
         ori = pose_msg.pose.orientation
         rot = Rotation.from_quat([ori.x, ori.y, ori.z, ori.w])
         rot_euler = rot.as_euler('xyz', degrees=False)
@@ -146,11 +168,13 @@ class StateUpdater:
         x = pose_msg.pose.position.x + y_cal*math.cos(theta)
         y = pose_msg.pose.position.y + y_cal*math.sin(theta)
 
-        state = [x, y, theta]
+        v = la.norm([twist_msg.twist.linear.x, twist_msg.twist.linear.y])
+
+        state = [x, y, theta, v]
 
         return state
 
-    def ped_state(self, pose_msg):
+    def convert_ped_state(self, pose_msg):
         x = pose_msg.pose.position.x
         y = pose_msg.pose.position.y
 
@@ -189,8 +213,15 @@ class StateUpdater:
         # veh history
         f = open(hist_path + "veh_hist_vrpn.csv", 'w')
         writer = csv.writer(f)
-        for msg_k in self.hist_veh_msg:
-            s_k = self.veh_state(msg_k)
+
+        veh_hist_len = min(len(self.hist_veh_pose_msg), len(self.hist_veh_twist_msg))
+        
+        for k in range(0, veh_hist_len):
+            pose_msg_k = self.hist_veh_pose_msg[k]
+            twist_msg_k = self.hist_veh_twist_msg[k]
+
+            s_k = self.convert_veh_state(pose_msg_k, twist_msg_k)
+
             writer.writerow(s_k)
         f.close()
 
@@ -198,7 +229,7 @@ class StateUpdater:
         f = open(hist_path + "ped1_hist_vrpn.csv", 'w')
         writer = csv.writer(f)
         for msg_k in self.hist_ped1_msg:
-            s_k = self.ped_state(msg_k)
+            s_k = self.convert_ped_state(msg_k)
             writer.writerow(s_k)
         f.close()
         
