@@ -45,7 +45,7 @@ class StateUpdater:
     def __init__(self):
         # subscribe to Vicon topic for each object
         self.vrpn_sub_marmot_pose = rospy.Subscriber(
-            "/car/vrpn_client_ros/vrpn_client_node/ADCL_Ped1/pose", 
+            "/car/vrpn_client_ros/vrpn_client_node/ADCL_Marmot/pose", 
             PoseStamped,
             callback=self.store_current_msg,
             callback_args=0,
@@ -184,21 +184,23 @@ class StateUpdater:
         # TO-DO: add datetime to file name
         # TO-DO: add time stamp to each entry
 
+        hist_path = "/home/adcl/catkin_ws/src/marmot-ros-v2/controller_pkg/histories/"
+
         # veh history
-        f = open("/home/adcl/catkin_ws/src/marmot-ros/controller_pkg/histories/veh_hist_vrpn.csv", 'w')
+        f = open(hist_path + "veh_hist_vrpn.csv", 'w')
         writer = csv.writer(f)
         for msg_k in self.hist_veh_msg:
             s_k = self.veh_state(msg_k)
             writer.writerow(s_k)
         f.close()
 
-        # # ped1 history
-        # f = open("/home/adcl/catkin_ws/src/marmot-ros/controller_pkg/histories/ped1_hist_vrpn.csv", 'w')
-        # writer = csv.writer(f)
-        # for msg_k in self.hist_ped1_msg:
-        #     s_k = self.ped_state(msg_k)
-        #     writer.writerow(s_k)
-        # f.close()
+        # ped1 history
+        f = open(hist_path + "ped1_hist_vrpn.csv", 'w')
+        writer = csv.writer(f)
+        for msg_k in self.hist_ped1_msg:
+            s_k = self.ped_state(msg_k)
+            writer.writerow(s_k)
+        f.close()
         
         self.saved_hist = True
         print("save complete")

@@ -14,7 +14,7 @@ Pkg.activate("/home/adcl/Documents/BellmanPDEs.jl/")
 using BellmanPDEs
 using JLD2
 
-# include(HAN_path * "main.jl")
+include(HAN_path * "main.jl")
 include(HAN_path * "struct_definition.jl")
 include(HAN_path * "environment.jl")
 include(HAN_path * "utils.jl")
@@ -75,15 +75,19 @@ function action_updater_client(a)
 end
 
 # convert POMDP action to ROS control input
-function pomdp2ros_action(a_pomdp, v_kn1)
+function pomdp2ros_action(a_pomdp, v_kn1, max_v_speed)
     # pass steering angle
     phi_k = a_pomdp.steering_angle
 
     # calculate new velocity from Dv
     Dv = a_pomdp.delta_speed
-    v_k = v_kn1 + Dv
+    if(Dv==-10.0)
+        return [0.0, 0.0]
+    else
+        v_k = clamp(v_kn1 + Dv,0.0,max_v_speed)
+        return [phi_k, v_k]
+    end
 
-    return [phi_k, v_k]
 end
 
 # TO-DO: need to make sure this aligns with revamped POMDP code
@@ -131,7 +135,7 @@ function main()
     HJB_planning_details = HJBPlanningDetails(Dt, max_solve_steps, Dval_tol, max_steering_angle, veh_params.max_speed)
     policy_path = "/home/himanshu/Documents/Research/human_aware_navigation/src"
     
-    # solve_HJB = true
+    solve_HJB = true
     solve_HJB = false
 
     if(solve_HJB)
@@ -149,12 +153,10 @@ function main()
         env_humans, env_humans_params, exp_details.simulator_time_step)
 
     # define POMDP, POMDP solver and POMDP planner
-    extended_space_pomdp = ExtendedSpacePOMDP(pomdp_details,exp_details,veh_params,rollout_guide)
-
-    pomdp_solver = DESPOTSolver(bounds=IndependentBounds(DefaultPolicyLB(FunctionPolicy(b->calculate_lower_bound(extended_space_pomdp, b)),
-        max_depth=pomdp_details.tree_search_max_depth), calculate_upper_bound,check_terminal=true),
-        K=pomdp_details.num_scenarios, D=pomdp_details.tree_search_max_depth, T_max=pomdp_details.planning_time, tree_in_info=true)
-    
+    extended_space_pomdp = ExtendedSpacePOMDP(pomdp_details,exp_details,veh_params,rollout_guide)   
+    pomdp_solver = DESPOTSolver(bounds=IndependentBounds(DefaultPolicyLB(FunctionPolicy(b->calculate_lower_bound(extended_space_pomdp, b)),max_depth=pomdp_details.tree_search_max_depth),
+    calculate_upper_bound,check_terminal=true,consistency_fix_thresh=1e-5),K=pomdp_details.num_scenarios,D=pomdp_details.tree_search_max_depth,
+    T_max=pomdp_details.planning_time,tree_in_info=true)
     pomdp_planner = POMDPs.solve(pomdp_solver, extended_space_pomdp);
 
     # set control loop parameters
@@ -225,20 +227,18 @@ function main()
         sim_obj_k = Simulator(env, veh_obj, veh_params, sensor_data_k, human_states_k, human_params_k, sim_obj_kn1.one_time_step)
 
 
-        # check terminal conditions
-        dist_to_goal = sqrt((veh_obj.x - veh_params.goal.x)^2 + (veh_obj.y - veh_params.goal.y)^2)
-
-        if ((plan_step >= max_plan_steps) || (dist_to_goal <= 1.0))
-            end_run = true
-            continue
-        end
-
-
         # 5: calculate action for next cycle with POMDP solver ---
         # propagate vehicle forward to next time step (TO-DO: should be variable based on Date.now() time into loop)
         time_to_k1 = 0.4
         predicted_vehicle_state = propogate_vehicle(sim_obj_k.vehicle, sim_obj_k.vehicle_params, a_ros_k[1], a_ros_k[2], time_to_k1)
         
+        # check terminal conditions
+        dist_to_goal = sqrt((predicted_vehicle_state.x - veh_params.goal.x)^2 + (predicted_vehicle_state.y - veh_params.goal.y)^2)
+        if ((plan_step >= max_plan_steps) || (dist_to_goal <= exp_details.radius_around_vehicle_goal))
+            end_run = true
+            continue
+        end
+
         # assemble inputs for DESPOT solver
         modified_vehicle_params = modify_vehicle_params(sim_obj_k.vehicle_params)
         b = TreeSearchScenarioParameters(predicted_vehicle_state.x, predicted_vehicle_state.y, predicted_vehicle_state.theta, predicted_vehicle_state.v,
@@ -247,7 +247,7 @@ function main()
         
         # run DESPOT algorithm
         a_pomdp_k1, info = action_info(pomdp_planner, b)
-        a_ros_k1 = pomdp2ros_action(a_pomdp_k1, veh_obj.v)
+        a_ros_k1 = pomdp2ros_action(a_pomdp_k1, veh_obj.v, pomdp_details.max_vehicle_speed)
 
         println("veh_x_k1 = ", [predicted_vehicle_state.x, predicted_vehicle_state.y, predicted_vehicle_state.theta, predicted_vehicle_state.v])
         println("a_pomdp_k1 = ", a_pomdp_k1, ", a_ros_k1 = ", a_ros_k1)
@@ -257,13 +257,17 @@ function main()
         push!(state_hist, obs_k)
         push!(action_hist, a_ros_k)
 
-        plan_step += 1
-
         a_ros_k = a_ros_k1
         sim_obj_kn1 = sim_obj_k
 
+        if plan_step == 1
+            sleep(4)
+            a_ros_k = [0.0, 0.0]
+        end
+        plan_step += 1
 
         # 7: sleep for remainder of planning loop ---
+
         sleep(plan_rate)
     end
 
@@ -272,8 +276,8 @@ function main()
     state_updater_client(false)
 
     # save state and action history
-    @save "/home/adcl/catkin_ws/src/marmot-ros/controller_pkg/histories/state_hist.bson" state_hist
-    @save "/home/adcl/catkin_ws/src/marmot-ros/controller_pkg/histories/action_hist.bson" action_hist
+    @save "/home/adcl/catkin_ws/src/marmot-ros-v2/controller_pkg/histories/state_hist.bson" state_hist
+    @save "/home/adcl/catkin_ws/src/marmot-ros-v2/controller_pkg/histories/action_hist.bson" action_hist
 end
 
 main()
