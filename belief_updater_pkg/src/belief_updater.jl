@@ -13,7 +13,7 @@ include(HAN_path * "environment.jl")
 include(HAN_path * "utils.jl")
 include(HAN_path * "belief_tracker.jl")
 include(HAN_path * "simulator.jl")
-include(HAN_path * "aspen_inputs.jl")
+include(HAN_path * "env_inputs/aspen_inputs.jl")
 
 # ROS imports
 @rosimport state_updater_pkg.srv: UpdateState
@@ -39,12 +39,12 @@ end
 function return_belief(req)
     global belief_k
 
-    # println("BU: received CTRL request")
+    # println("BU: received CT request")
 
     # convert belief object to array for ROS message
     belief_array = zeros(Float64, 16)
     i = 1
-    # println(belief_array)
+    # println("BU: belief_array = ", belief_array)
     for human_prob in belief_k
         # println("human_prob , " , human_prob.pdf)
         for prob in human_prob.pdf
@@ -109,6 +109,7 @@ function main()
             human_id += 1
         end
 
+
         # 3: update belief based on observation ---
         new_lidar_data, new_ids = human_states_k, human_ids
         belief_k = get_belief(veh_sensor_data_kn1, new_lidar_data, 
@@ -117,23 +118,15 @@ function main()
 
         # println("belief_updater: belief_k = ", belief_k)
 
+
         # 4: pass variables to next loop ---
         veh_sensor_data_k = VehicleSensor(human_states_k, human_ids, belief_k)
         veh_sensor_data_kn1 = veh_sensor_data_k
 
-        # 5: sleep for remainder of belief loop ---
 
+        # 5: sleep for remainder of belief loop ---
         sleep(belief_rate)
     end
 end
 
 main()
-
-
-# main loop to repeatedly:
-#   - (x) query Vicon observations
-#   - (o) run belief update
-#   - (x) store current belief in global for controller to request
-
-# NOTE: don't want belief as a POMDP object, just want 1-d array of belief distributitions
-#   - belief functions may output belief as a POMDP object, need to convert back

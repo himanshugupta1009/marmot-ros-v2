@@ -14,7 +14,7 @@ Pkg.activate("/home/adcl/Documents/BellmanPDEs.jl/")
 using BellmanPDEs
 using JLD2
 
-include(HAN_path * "main.jl")
+# include(HAN_path * "main.jl")
 include(HAN_path * "struct_definition.jl")
 include(HAN_path * "environment.jl")
 include(HAN_path * "utils.jl")
@@ -24,7 +24,7 @@ include(HAN_path * "simulator.jl")
 include(HAN_path * "parser.jl")
 include(HAN_path * "visualization.jl")
 include(HAN_path * "HJB_wrappers.jl")
-include(HAN_path * "aspen_inputs.jl")
+include(HAN_path * "env_inputs/aspen_inputs.jl")
 
 # ROS imports
 @rosimport state_updater_pkg.srv: UpdateState
@@ -84,7 +84,7 @@ function pomdp2ros_action(a_pomdp, v_kn1, max_v_speed)
     if(Dv==-10.0)
         return [0.0, 0.0]
     else
-        v_k = clamp(v_kn1 + Dv,0.0,max_v_speed)
+        v_k = clamp(v_kn1 + Dv, 0.0, max_v_speed)
         return [phi_k, v_k]
     end
 
@@ -123,9 +123,12 @@ function main()
 
     # define vehicle
     veh = Vehicle(input_config.veh_start_x, input_config.veh_start_y, input_config.veh_start_theta, input_config.veh_start_v)
-    veh_sensor_data = VehicleSensor(HumanState[],Int64[],HumanGoalsBelief[])
-    veh_goal = Location(input_config.veh_goal_x,input_config.veh_goal_y)
-    veh_params = VehicleParametersESPlanner(input_config.veh_L,input_config.veh_max_speed,veh_goal)
+    veh_sensor_data = VehicleSensor(HumanState[], Int64[], HumanGoalsBelief[])
+    veh_goal = Location(input_config.veh_goal_x, input_config.veh_goal_y)
+    r = sqrt( (0.5*input_config.veh_length)^2 + (0.5*input_config.veh_breadth)^2 )
+    veh_params = VehicleParametersESPlanner(input_config.veh_wheelbase, input_config.veh_length,
+        input_config.veh_breadth, input_config.veh_dist_origin_to_center, r,
+        input_config.veh_max_speed, input_config.veh_max_steering_angle, veh_goal)
 
     # solve HJB equation for the given environment and vehicle
     Dt = 0.5
@@ -133,17 +136,16 @@ function main()
     Dval_tol = 0.1
     max_steering_angle = 0.475
     HJB_planning_details = HJBPlanningDetails(Dt, max_solve_steps, Dval_tol, max_steering_angle, veh_params.max_speed)
-    policy_path = "/home/himanshu/Documents/Research/human_aware_navigation/src"
     
-    solve_HJB = true
+    # solve_HJB = true
     solve_HJB = false
 
     if(solve_HJB)
         rollout_guide = HJBPolicy(HJB_planning_details, exp_details, veh_params)
         d = Dict("rollout_guide"=>rollout_guide)
-        save("/home/adcl/Documents/human_aware_navigation/src/HJB_rollout_guide.jld2",d)
+        save(HAN_path * "HJB_rollout_guide.jld2", d)
     else
-        d = load("/home/adcl/Documents/human_aware_navigation/src/HJB_rollout_guide.jld2")
+        d = load(HAN_path * "HJB_rollout_guide.jld2")
         rollout_guide = d["rollout_guide"]
     end
     
@@ -153,10 +155,15 @@ function main()
         env_humans, env_humans_params, exp_details.simulator_time_step)
 
     # define POMDP, POMDP solver and POMDP planner
-    extended_space_pomdp = ExtendedSpacePOMDP(pomdp_details,exp_details,veh_params,rollout_guide)   
-    pomdp_solver = DESPOTSolver(bounds=IndependentBounds(DefaultPolicyLB(FunctionPolicy(b->calculate_lower_bound(extended_space_pomdp, b)),max_depth=pomdp_details.tree_search_max_depth),
-    calculate_upper_bound,check_terminal=true,consistency_fix_thresh=1e-5),K=pomdp_details.num_scenarios,D=pomdp_details.tree_search_max_depth,
-    T_max=pomdp_details.planning_time,tree_in_info=true)
+    pomdp_planning_time = 0.4
+
+    # ISSUE
+    extended_space_pomdp = ExtendedSpacePOMDP(pomdp_details, env, veh_params, rollout_guide)   
+    
+    pomdp_solver = DESPOTSolver(bounds=IndependentBounds(DefaultPolicyLB(FunctionPolicy(b->calculate_lower_bound(extended_space_pomdp, b)), 
+        max_depth=pomdp_details.tree_search_max_depth), calculate_upper_bound, check_terminal=true, consistency_fix_thresh=1e-5), 
+        K=pomdp_details.num_scenarios, D=pomdp_details.tree_search_max_depth,
+        T_max=pomdp_planning_time,tree_in_info=true,default_action=default_es_pomdp_action)
     pomdp_planner = POMDPs.solve(pomdp_solver, extended_space_pomdp);
 
     # set control loop parameters
@@ -185,10 +192,11 @@ function main()
     belief_ros_k = belief_updater_client()
     println("belief_ros_k = ", belief_ros_k)
 
-    println("controller: going into sleep loop") 
-    while true
-        sleep(0.5)
-    end
+    # println("controller: going into sleep loop") 
+    # while true
+    #     sleep(0.5)
+    # end
+    # ---
 
     # run control loop
     println("controller: starting main loop")
@@ -208,6 +216,7 @@ function main()
         # 3: retrieve current belief from belief updater ---
         belief_ros_k = belief_updater_client()
         belief_pomdp_k = ros2pomdp_belief(belief_ros_k)
+
 
         # 4: update environment ---
         veh_obj = Vehicle(obs_k[1], obs_k[2], obs_k[3], obs_k[4])
@@ -235,7 +244,7 @@ function main()
 
         # 5: calculate action for next cycle with POMDP solver ---
         # propagate vehicle forward to next time step (TO-DO: should be variable based on Date.now() time into loop)
-        time_to_k1 = 0.4
+        time_to_k1 = 0.5
         predicted_vehicle_state = propogate_vehicle(sim_obj_k.vehicle, sim_obj_k.vehicle_params, a_ros_k[1], a_ros_k[2], time_to_k1)
         
         # check terminal conditions
@@ -255,6 +264,9 @@ function main()
         a_pomdp_k1, info = action_info(pomdp_planner, b)
         a_ros_k1 = pomdp2ros_action(a_pomdp_k1, veh_obj.v, pomdp_details.max_vehicle_speed)
 
+        # ISSUE: need to be using most recent velocity measurement when computing next velocity command
+        #   - should be taking a new observation just before execution, after DESPOT and sleep(rate)
+
         println("veh_x_k1 = ", [predicted_vehicle_state.x, predicted_vehicle_state.y, predicted_vehicle_state.theta, predicted_vehicle_state.v])
         println("a_pomdp_k1 = ", a_pomdp_k1, ", a_ros_k1 = ", a_ros_k1)
 
@@ -267,13 +279,12 @@ function main()
         sim_obj_kn1 = sim_obj_k
 
         if plan_step == 1
-            sleep(4)
             a_ros_k = [0.0, 0.0]
         end
         plan_step += 1
 
-        # 7: sleep for remainder of planning loop ---
 
+        # 7: sleep for remainder of planning loop ---
         sleep(plan_rate)
     end
 

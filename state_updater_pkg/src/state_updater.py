@@ -50,14 +50,14 @@ class StateUpdater:
         # subscribe to Vicon topic for each object
         # - vehicle
         self.vrpn_sub_marmot_pose = rospy.Subscriber(
-            "/car/vrpn_client_ros/vrpn_client_node/ADCL_Ped3/pose", 
+            "/car/vrpn_client_ros/vrpn_client_node/ADCL_Marmot/pose", 
             PoseStamped,
             callback=self.store_current_msg,
             callback_args=0,
             queue_size=1)
 
         self.vrpn_sub_marmot_twist = rospy.Subscriber(
-            "/car/vrpn_client_ros/vrpn_client_node/ADCL_Ped3/twist", 
+            "/car/vrpn_client_ros/vrpn_client_node/ADCL_Marmot/twist", 
             TwistStamped,
             callback=self.store_current_msg,
             callback_args=1,
