@@ -90,8 +90,6 @@ function pomdp2ros_action(a_pomdp, v_kn1, max_v_speed)
 
 end
 
-# TO-DO: need to make sure this aligns with revamped POMDP code
-# convert ROS 1D belief array to POMDP belief distribution object
 function ros2pomdp_belief(belief_ros)
     belief_pomdp = Array{HumanGoalsBelief,1}()
 
@@ -204,13 +202,25 @@ function main()
         println("\n--- --- ---")
         println("k = ", plan_step, ", t_k = ", Dates.now())
 
-        # 1: publish current action to ESC ---
-        # a_ros = [0.0, 0.0]
+        # 1: retrieve state at t_k- from Vicon ---
+        obs_k = state_updater_client(true)
+
+
+        # 2: publish current action to ESC ---
+        v_km = obs_k[4]     # true velocity just before t_k
+
+        a_ros_k = pomdp2ros_action(a_pomdp_k, v_km, pomdp_details.max_vehicle_speed)    # add requested Dv to true v_km
+
+        # NOTE: make sure this works correctly with long first step
+        if plan_step == 1
+            a_ros_k = [0.0, 0.0]
+        end
+
         action_updater_client(a_ros_k)
 
+        v_kp = a_ros_k[2]   # "perfect step" velocity just after t_k
 
-        # 2: retrieve current state/observation from Vicon ---
-        obs_k = state_updater_client(true)
+        println("a_pomdp_k = $a_pomdp_k, v_km = $v_km, a_ros_k = $a_ros_k, v_kp = $v_kp")
 
 
         # 3: retrieve current belief from belief updater ---
@@ -219,7 +229,8 @@ function main()
 
 
         # 4: update environment ---
-        veh_obj = Vehicle(obs_k[1], obs_k[2], obs_k[3], obs_k[4])
+        # define vehicle object at t_k+
+        veh_obj = Vehicle(obs_k[1], obs_k[2], obs_k[3], v_kp)   # other states should be unchanged from t_k- to t_k+
 
         # parse human positions from observation array
         human_states_k = Array{HumanState,1}()
@@ -262,25 +273,20 @@ function main()
         
         # run DESPOT algorithm
         a_pomdp_k1, info = action_info(pomdp_planner, b)
-        a_ros_k1 = pomdp2ros_action(a_pomdp_k1, veh_obj.v, pomdp_details.max_vehicle_speed)
 
         # ISSUE: need to be using most recent velocity measurement when computing next velocity command
         #   - should be taking a new observation just before execution, after DESPOT and sleep(rate)
 
         println("veh_x_k1 = ", [predicted_vehicle_state.x, predicted_vehicle_state.y, predicted_vehicle_state.theta, predicted_vehicle_state.v])
-        println("a_pomdp_k1 = ", a_pomdp_k1, ", a_ros_k1 = ", a_ros_k1)
 
 
         # 6: book-keeping ---
         push!(state_hist, obs_k)
         push!(action_hist, a_ros_k)
 
-        a_ros_k = a_ros_k1
+        a_pomdp_k = a_pomdp_k1
         sim_obj_kn1 = sim_obj_k
 
-        if plan_step == 1
-            a_ros_k = [0.0, 0.0]
-        end
         plan_step += 1
 
 
