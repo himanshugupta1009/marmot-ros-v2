@@ -172,7 +172,7 @@ function main()
     max_plan_steps = 4 * 60 * 1/Dt
     end_run = false
 
-    a_ros_k = [0.0, 0.0]
+    a_pomdp_k = ActionExtendedSpacePOMDP(0.0, 0.0)
 
     state_hist = []
     action_hist = []
@@ -181,8 +181,7 @@ function main()
     println("controller: sending test requests to services")
 
     # TEST ---
-    a_ros_k = [0.4, 0.0]
-    action_updater_client(a_ros_k)
+    action_updater_client([0.4, 0.0])
 
     obs_k = state_updater_client(true)
     println("obs_k = ", obs_k)
@@ -205,15 +204,19 @@ function main()
         # 1: retrieve state at t_k- from Vicon ---
         obs_k = state_updater_client(true)
 
+        x_km = obs_k[1:4]
+        println("x_km observed = ", x_km)
 
         # 2: publish current action to ESC ---
-        v_km = obs_k[4]     # true velocity just before t_k
+        v_km = clamp(x_km[4], 0.0, 2.0)    # true velocity just before t_k
 
         a_ros_k = pomdp2ros_action(a_pomdp_k, v_km, pomdp_details.max_vehicle_speed)    # add requested Dv to true v_km
 
         # NOTE: make sure this works correctly with long first step
         if plan_step == 1
             a_ros_k = [0.0, 0.0]
+        elseif plan_step in [2, 3]
+            a_ros_k = [0.0, 0.3]
         end
 
         action_updater_client(a_ros_k)
@@ -231,12 +234,15 @@ function main()
         # 4: update environment ---
         # define vehicle object at t_k+
         veh_obj = Vehicle(obs_k[1], obs_k[2], obs_k[3], v_kp)   # other states should be unchanged from t_k- to t_k+
+        println("x_kp used for POMDP = ", veh_obj)
 
         # parse human positions from observation array
         human_states_k = Array{HumanState,1}()
         human_params_k = Array{HumanParameters,1}()
         human_ids = Array{Int64,1}()
         human_id = 1
+
+        println("humans_k = ", round.(obs_k[5:end], digits=3))
 
         for i in 5:2:length(obs_k)
             human = HumanState(obs_k[i], obs_k[i+1], 1.0, exp_details.human_goal_locations[1])
@@ -277,7 +283,7 @@ function main()
         # ISSUE: need to be using most recent velocity measurement when computing next velocity command
         #   - should be taking a new observation just before execution, after DESPOT and sleep(rate)
 
-        println("veh_x_k1 = ", [predicted_vehicle_state.x, predicted_vehicle_state.y, predicted_vehicle_state.theta, predicted_vehicle_state.v])
+        println("veh_x_k1 predicted = ", [predicted_vehicle_state.x, predicted_vehicle_state.y, predicted_vehicle_state.theta, predicted_vehicle_state.v])
 
 
         # 6: book-keeping ---
