@@ -1,6 +1,8 @@
 <!-- -*- mode: XML -*- -->
 <launch>
 
-  <node pkg="state_updater_pkg" type="state_updater.py" name="state_updater" output="screen" />
+  <node pkg="state_updater_pkg" type="state_updater.py" name="state_updater" output="screen" >
+    <param name="num_pedestrians" value="4" /> <!--Change this value depending on the num_pedestrians, otherwise default is set to 4--> 
+  </node>
 
 </launch>
