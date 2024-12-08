@@ -1,11 +1,14 @@
 #!/usr/bin/env julia
 
+# algs imports
+HAV_env_path = "/home/adcl/Documents/human_aware_navigation/" 
+HAN_path = HAV_env_path*"src/"
+
+using Pkg
+Pkg.activate(HAV_env_path)
 using RobotOS
 
 println("\n--- hello from belief_updater.jl ---\n")
-
-# algs imports
-HAN_path = "/home/adcl/Documents/human_aware_navigation/src/"
 
 include(HAN_path * "struct_definition.jl")
 include(HAN_path * "parser.jl")
@@ -13,7 +16,8 @@ include(HAN_path * "environment.jl")
 include(HAN_path * "utils.jl")
 include(HAN_path * "belief_tracker.jl")
 include(HAN_path * "simulator.jl")
-include(HAN_path * "env_inputs/aspen_inputs.jl")
+include(HAN_path * "simulator_utils.jl")
+include(HAN_path * "configs/aspen.jl")
 
 # ROS imports
 @rosimport state_updater_pkg.srv: UpdateState
@@ -76,7 +80,6 @@ function main()
         return_belief)
 
     # POMDP params
-    input_config = aspen
     pomdp_details = POMPDPlanningDetails(input_config)
     exp_details = ExperimentDetails(input_config)
     env = generate_environment(input_config.env_length,input_config.env_breadth,input_config.obstacles)
