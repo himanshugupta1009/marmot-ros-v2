@@ -1,0 +1,10 @@
+<!-- -*- mode: XML -*- -->
+<launch>
+
+  <node pkg="state_updater_pkg" type="state_updater.py" name="state_updater" output="screen" />
+    <param name="num_pedestrians" value="4" /> <!--Change this value depending on the num_pedestrians, otherwise default is set to 4-->
+
+    <!-- Default value for use_dummy_data, can be overridden from command line -->
+    <param name="use_dummy_data" value="true" />
+
+</launch>

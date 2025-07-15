@@ -1,0 +1,14 @@
+# ----------  request  ----------
+float64 x
+float64 y
+float64 theta
+float64 v
+float64 steering          # rad
+float64 speed             # m/s
+float64 dt                # integrator step (s)
+---
+# ---------- response ----------
+float64[] xs              
+float64[] ys
+float64[] thetas
+float64[] vs

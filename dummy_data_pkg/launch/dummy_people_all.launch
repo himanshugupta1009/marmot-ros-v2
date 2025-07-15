@@ -1,0 +1,15 @@
+<launch>
+  <!-- JSON People Service Node -->
+  <node name="json_people_service_server"
+        pkg="dummy_data_pkg"
+        type="json_people_service_server.py"
+        output="screen">
+  </node>
+
+  <!-- JSON People Topic Publisher Node -->
+  <node name="dummy_data_publisher"
+        pkg="dummy_data_pkg"
+        type="json_people_publisher.py"
+        output="screen">
+  </node>
+</launch>
