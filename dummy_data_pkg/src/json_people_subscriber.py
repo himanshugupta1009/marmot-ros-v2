@@ -8,10 +8,11 @@ import rospy, time
 from dummy_data_pkg.msg import PeoplePoseArray
 
 _start_time = None
+ped_pos_dict = {}
 
 # This callback is called once per time step
 def callback(msg):
-    global _start_time
+    global _start_time, ped_pos_dict
     # on first message, capture the start time
     if _start_time is None:
         _start_time = time.time()
@@ -24,6 +25,7 @@ def callback(msg):
         ped_id = msg.ids[i]
         pose = msg.poses[i].position
         rospy.loginfo("Ped {} -> x: {:.2f}, y: {:.2f}".format(ped_id, pose.x, pose.y))
+        ped_pos_dict.setdefault(ped_id, []).append((pose.x, pose.y))
 
 def main():
     rospy.init_node("json_people_subscriber")

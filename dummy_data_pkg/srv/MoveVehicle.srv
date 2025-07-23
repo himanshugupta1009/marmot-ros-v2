@@ -6,9 +6,11 @@ float64 v
 float64 steering          # rad
 float64 speed             # m/s
 float64 dt                # integrator step (s)
+float64 t0 
 ---
 # ---------- response ----------
 float64[] xs              
 float64[] ys
 float64[] thetas
 float64[] vs
+float64[] ts
