@@ -1,9 +1,8 @@
+#Various different Struct definitions
 using Random
 using DataStructures
 using Parameters
 using LazySets
-
-#Various different Struct definitions
 
 struct Location
     x::Float64
@@ -222,3 +221,9 @@ mutable struct Output{T}
     sim_objects::OrderedDict
     risky_scenarios::OrderedDict
 end
+
+# # --- Shared Globals ---
+const VEHICLE_TRAJ = Dict{Float64, Vehicle}()
+const BELIEF_ARRAY = Dict{Float64, Tuple{Vector{HumanState}, Vector{Int64}, Vector{HumanGoalsBelief}}}()
+# const ACTION_ARRAY = Dict{Float64, Tuple{Float64, Float64}}()
+const vehicle_state = Ref{Vehicle}()

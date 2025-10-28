@@ -52,13 +52,18 @@ find_package(catkin REQUIRED COMPONENTS
 add_message_files(
   FILES
   PeoplePoseArray.msg
+  BeliefArray.msg
+  LiveData.msg
 )
 
 # Generate services in the 'srv' folder
 add_service_files(
   FILES
   GetPeople.srv
+  GetLiveData.srv
   MoveVehicle.srv
+  SetAction.srv
+  GetAction.srv
 )
 
 ## Generate actions in the 'action' folder

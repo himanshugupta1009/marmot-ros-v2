@@ -17,7 +17,7 @@ weakdeps = ["ChainRulesCore", "ConstructionBase", "EnzymeCore"]
 
 [[deps.ARDESPOT]]
 deps = ["BasicPOMCP", "CPUTime", "D3Trees", "POMDPTools", "POMDPs", "Parameters", "ParticleFilters", "Printf", "Random"]
-git-tree-sha1 = "d6f73792bf7f162a095503f47427c66235c0c772"
+path = "/home/anshjha/.julia/dev/ARDESPOT"
 uuid = "d96c9ae4-3372-47d5-8a88-316ae77be8cf"
 version = "0.3.8"
 
@@ -1376,7 +1376,7 @@ version = "1.1.0"
 
 [[deps.MCTS]]
 deps = ["Colors", "D3Trees", "POMDPLinter", "POMDPTools", "POMDPs", "Printf", "ProgressMeter", "Random"]
-git-tree-sha1 = "ea9d0fffd47111ac149e3c983ce5e21863268809"
+path = "/home/anshjha/.julia/dev/MCTS"
 uuid = "e12ccd36-dcad-5f33-8774-9175229e7b33"
 version = "0.5.6"
 

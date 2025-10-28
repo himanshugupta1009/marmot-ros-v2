@@ -16,9 +16,7 @@ include(joinpath(@__DIR__, "people_listener.jl"))
 include(joinpath(@__DIR__, "..", "..", "..","..", "src", "human_aware_navigation_modifiedbyansh", "src", "main_es.jl"))   # provides `env`,`vehicle_params`,`humans_params`
 include(joinpath(@__DIR__, "..", "..", "..","..", "src", "human_aware_navigation_modifiedbyansh", "src", "visualization.jl"))
 include(joinpath(@__DIR__, "..", "..", "..","..", "src", "human_aware_navigation_modifiedbyansh", "src", "belief_tracker.jl"))
-# @rosimport dummy_data_pkg.msg: PeoplePoseArray
-# RobotOS.rostypegen()
-#using .dummy_data_pkg.msg: PeoplePoseArray
+
 
 const rng            = Main.exp_details.user_defined_rng
 const MAX_TIME_LIMIT = Main.exp_details.MAX_TIME_LIMIT
@@ -27,8 +25,7 @@ const NUM_NEARBY_HUMANS   = 6          # same as input_config.num_nearby_humans
 const MIN_SAFE_DIST       = 1.0        # metres (front-cone exception)
 const CONE_HALF_ANGLE     = 2*pi/3       # 120° front field-of-view
 const LIDAR_RANGE         = 20.0
-# const veh_params = Main.veh_params
-#const env_humans_params = Main.env_humans_params
+
 ##########################################################################################
 
 #──────────────────────── helper: build sim_objects at 0.1-s resolution ──────────────────
@@ -55,7 +52,6 @@ function populate_sim_objects!(
         veh_traj_dict::Dict{Float64,Vehicle},
         traj_map::Dict{Int,Vector{HumanState}},
         env::ExperimentEnvironment,
-        # vehicle_body::P,
         veh_params::VehicleParametersESPlanner,
         env_humans_params::Vector{HumanParameters};
         dt::Float64=0.1,

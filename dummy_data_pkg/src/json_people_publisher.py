@@ -14,7 +14,8 @@ from dummy_data_pkg.msg import PeoplePoseArray
 
 # === Config ===
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-JSON_PATH = os.path.join(SCRIPT_DIR, "..", "..", "MarmotSimData", "human_paths_testing.json") # Update as needed
+JSON_PATH = os.path.join(SCRIPT_DIR, "..", "..", "MarmotSimData", "human_paths_testing.json") # Update as needed (this is 7 humans)
+#JSON_PATH = os.path.join(SCRIPT_DIR, "..", "..", "MarmotSimData", "human_paths_30.json") # Update as needed
 PUBLISH_RATE = 100  # Hz
 
 # Loads JSON data: an array of pedestrian each with an ID and a path of states
@@ -28,7 +29,9 @@ def main():
     rospy.loginfo("Starting dummy data publisher at 100Hz")
 
     data = load_trajectories(JSON_PATH)
+    # n_peds = len(data)
     total_steps = max(len(p["path"]) for p in data)  # Determines the longest trajectory
+    # rospy.loginfo("Loaded %d pedestrians; longest path length = %d", n_peds, total_steps)
 
     # Publisher sends PeoplePoseArray messages
     pub = rospy.Publisher("/car/dummy/people_poses", PeoplePoseArray, queue_size=10)
@@ -55,6 +58,12 @@ def main():
 
                 msg.poses.append(pose)
                 msg.ids.append(ped["id"])
+        # DEbugging/ Verification purposes
+        # if t % 400 == 0:
+        #     rospy.loginfo("tick=%d/%d  publishing %d poses  subscribers=%d",
+        #                     t, total_steps, len(msg.ids), pub.get_num_connections())
+        #     if len(msg.ids) == 0:
+        #         rospy.logwarn("Empty PeoplePoseArray at tick %d (no paths long enough?)", t)
 
         pub.publish(msg)  # Publish a single synchronized message for all pedestrians
         t += 1

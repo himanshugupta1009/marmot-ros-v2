@@ -12,7 +12,7 @@ using .std_srvs.srv
 function handle(req)                           #WORKS PERFECTLY
     @info "Received SetBool request"
     println("Request data: ", req.data)
-    return SetBoolResponse(true, "Confirmed")
+    return SetBoolResponse(true, "Confirmed")  #RETURN HAS TO BE IN THIS FORMAT
 end
 
 function main()
